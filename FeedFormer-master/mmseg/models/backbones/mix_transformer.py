@@ -27,7 +27,6 @@ class Mlp(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
-
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
