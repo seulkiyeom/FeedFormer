@@ -79,7 +79,6 @@ class CrossAttention(nn.Module):
         self.dim2 = dim2
         self.num_heads = num_heads
         head_dim = dim1 // num_heads
-
         self.scale = qk_scale or head_dim ** -0.5
 
         self.q = nn.Linear(dim1, dim1, bias=qkv_bias)
