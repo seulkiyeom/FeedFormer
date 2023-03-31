@@ -26,6 +26,8 @@ from .segformer_head import SegFormerHead
 from .feedformer_head import FeedFormerHead
 from .feedformer_head_city import FeedFormerHeadCity
 
+from .notaformer_head import NotaFormerHead
+
 __all__ = [
     'FCNHead', 'PSPHead', 'ASPPHead', 'PSAHead', 'NLHead', 'GCHead', 'CCHead',
     'UPerHead', 'DepthwiseSeparableASPPHead', 'ANNHead', 'DAHead', 'OCRHead',

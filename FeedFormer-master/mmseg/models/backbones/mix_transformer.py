@@ -115,6 +115,7 @@ class Attention(nn.Module):
 
         return x
 
+#%Transformer에서 활용할 수 있는 대표적 Interpretability 방법인 Rollout을 Decoder의 성능을 개선하는 방안으로 활용하고 싶어. 관련하여 코드를 생성해줘
 
 class Block(nn.Module):
 
@@ -206,7 +207,7 @@ class MixVisionTransformer(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
-
+        self.attention_maps = []
 
         # patch_embed
         self.patch_embed1 = OverlapPatchEmbed(img_size=img_size, patch_size=7, stride=4, in_chans=in_chans,
@@ -257,10 +258,22 @@ class MixVisionTransformer(nn.Module):
             for i in range(depths[3])])
         self.norm4 = norm_layer(embed_dims[3])
 
+        # Hook register
+        attention_layer_name = 'attn_drop'
+        for block in [self.block1, self.block2, self.block3, self.block4]:
+            for name, module in block.named_modules():
+                if attention_layer_name in name:
+                    module.register_forward_hook(self.get_attention)
+
         # classification head
         # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
 
         self.apply(self._init_weights)
+
+    def get_attention(self, module, input, output):
+        # attention_map = output[0].cpu().detach().numpy()
+        attention_map = output[0].cpu()
+        self.attention_maps.append(attention_map)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):

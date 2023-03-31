@@ -170,12 +170,12 @@ class Block(nn.Module):
         return x
 
 @HEADS.register_module()
-class FeedFormerHead(BaseDecodeHead):
+class NotaFormerHead(BaseDecodeHead):
     """
     SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers
     """
     def __init__(self, feature_strides, **kwargs):
-        super(FeedFormerHead, self).__init__(input_transform='multiple_select', **kwargs)
+        super(NotaFormerHead, self).__init__(input_transform='multiple_select', **kwargs)
         assert len(feature_strides) == len(self.in_channels)
         assert min(feature_strides) == feature_strides[0]
         self.feature_strides = feature_strides
@@ -201,6 +201,22 @@ class FeedFormerHead(BaseDecodeHead):
 
         self.linear_pred = nn.Conv2d(embedding_dim, self.num_classes, kernel_size=1)
 
+    def do_rollout(self, _c1, _c2, _c3, _c4):
+        result = torch.eye(_c1.size(1)**0.5)
+
+        for attention in [_c1, _c2, _c3, _c4]:
+            attention.shape
+
+        B, N, C = _c1.shape
+        H, W = int(N**0.5), int(N**0.5)
+        patches = _c1.new_zeros((B, N, C))  # initialize with zeros
+        patches[:, N//4:3*N//4, :] = _c2.transpose(1, 2)  # fill in c2 patches
+        patches[:, N//16:15*N//16, :] = _c3.transpose(1, 2)  # fill in c3 patches
+        patches[:, N//64:63*N//64, :] = _c4.transpose(1, 2)  # fill in c4 patches
+        patches[:, :N//64, :] = _c1.transpose(1, 2)[:, :N//64, :]  # fill in c1 patches
+        _rollout = patches.view(B, C, H, W).permute(0, 3, 2, 1).contiguous()  # reshape to image tensor
+        return _rollout
+
     def forward(self, inputs):
         x = self._transform_inputs(inputs)  # len=4, 1/4,1/8,1/16,1/32
         c1, c2, c3, c4 = x
@@ -210,11 +226,12 @@ class FeedFormerHead(BaseDecodeHead):
         _, _, h2, w2 = c2.shape
         _, _, h1, w1 = c1.shape
 
-    
-        c1 = c1.flatten(2).transpose(1, 2)
-        c2 = c2.flatten(2).transpose(1, 2)
-        c3 = c3.flatten(2).transpose(1, 2)
-        c4 = c4.flatten(2).transpose(1, 2) #shape: [batch, h1*w1, patches]
+        c1 = c1.flatten(2).transpose(1, 2) #h1 = 128 (512 / "4")
+        c2 = c2.flatten(2).transpose(1, 2) #h2 = 64 (512 / "8")
+        c3 = c3.flatten(2).transpose(1, 2) #h3 = 32 (512 / "16")
+        c4 = c4.flatten(2).transpose(1, 2) #h4 = 16 (512 / "32") shape: [batch, h1*w1, patches]
+
+        # _rollout = self.do_rollout(c1, c2, c3, c4)
 
         _c4 = self.attn_c4_c1(c4, c1, h1, w1, h4, w4)
         _c4 = _c4.permute(0,2,1).reshape(n, -1, h4, w4)
