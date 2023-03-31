@@ -365,8 +365,27 @@ class MixVisionTransformer(nn.Module):
 
         return outs
 
+    def compute_interpret(self):
+        head_fusion = 'max'
+        num_heads, num_tokens, _ = self.attention_map[0].shape #attention map 크기 [# Head, # token, # token dimension]
+
+        for attention in self.attention_maps:
+            if head_fusion == "mean":
+                attention_heads_fused = attention.mean(axis=0)
+            elif head_fusion == "max":
+                attention_heads_fused = attention.max(axis=0)[0]
+            elif head_fusion == "min":
+                attention_heads_fused = attention.min(axis=0)[0]
+            else:
+                raise "Attention head fusion type Not supported"            
+
+
+
     def forward(self, x):
         x = self.forward_features(x)
+
+        heatmap = self.compute_interpret() #attention map 크기 [# Head, # token, # token dimension]
+
         # x = self.head(x)
 
         return x
