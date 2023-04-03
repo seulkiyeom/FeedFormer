@@ -272,6 +272,7 @@ class MixVisionTransformer(nn.Module):
 
     def get_attention(self, module, input, output):
         # attention_map = output[0].cpu().detach().numpy()
+        print(f'module: {module}, input: {input.shape}, output: {output[0].shape}')
         attention_map = output[0].cpu()
         self.attention_maps.append(attention_map)
 
@@ -367,7 +368,7 @@ class MixVisionTransformer(nn.Module):
 
     def compute_interpret(self):
         head_fusion = 'max'
-        num_heads, num_tokens, _ = self.attention_map[0].shape #attention map 크기 [# Head, # token, # token dimension]
+        num_heads, num_tokens, _ = self.attention_maps[0].shape #attention map 크기 [# Head, # token, # token dimension]
 
         for attention in self.attention_maps:
             if head_fusion == "mean":
@@ -384,7 +385,7 @@ class MixVisionTransformer(nn.Module):
     def forward(self, x):
         x = self.forward_features(x)
 
-        heatmap = self.compute_interpret() #attention map 크기 [# Head, # token, # token dimension]
+        heatmap = self.compute_interpret() #attention map 크기 [# Head (확실), # token (H*W), # token dimension]
 
         # x = self.head(x)
 
