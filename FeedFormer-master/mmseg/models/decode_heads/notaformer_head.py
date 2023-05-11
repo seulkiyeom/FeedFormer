@@ -108,13 +108,13 @@ class CrossAttention(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, y, H2, W2):
+    def forward(self, x, y, H2, W2): #x: F4, y: F1
         B1, N1, C1 = x.shape
         B2, N2, C2 = y.shape
         q = self.q(x).reshape(B1, N1, self.num_heads, C1 // self.num_heads).permute(0, 2, 1, 3)
 
         x_ = y.permute(0, 2, 1).reshape(B2, C2, H2, W2)
-        x_ = self.sr(self.pool(x_)).reshape(B2, C2, -1).permute(0, 2, 1)
+        x_ = self.sr(self.pool(x_)).reshape(B2, C2, -1).permute(0, 2, 1) #self.sr 차원이 맞지 않으니 새로운 sr 설계가 필요함 (interpretability를 적용 하려면) + 이후도 수정해야 함
         x_ = self.norm(x_)
         x_ = self.act(x_)
         kv = self.kv(x_).reshape(B1, -1, 2, self.num_heads, C1 // self.num_heads).permute(2, 0, 3, 1, 4) #여기에다가 rollout을 넣는다면?
@@ -163,9 +163,9 @@ class Block(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, y, H2, W2, H1, W1):
-        x = x + self.drop_path(self.attn(self.norm1(x), self.norm2(y), H2, W2)) #self.norm2(y)이 F1에 대한 값
-        x = x + self.drop_path(self.mlp(self.norm3(x), H1, W1))
+    def forward(self, x, y, Hy, Wy, Hx, Wx): #x가 현재 stage output, x는 (FeedFormer 기준) Stage 1의 output
+        x = x + self.drop_path(self.attn(self.norm1(x), self.norm2(y), Hy, Wy)) #self.norm2(y)이 F1에 대한 값
+        x = x + self.drop_path(self.mlp(self.norm3(x), Hx, Wx))
 
         return x
 
