@@ -14,6 +14,7 @@ from timm.models.vision_transformer import _cfg
 from mmseg.models.builder import BACKBONES
 from mmseg.utils import get_root_logger
 from mmcv.runner import load_checkpoint
+from einops import rearrange
 import math
 
 
@@ -53,7 +54,6 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
         super().__init__()
@@ -92,6 +92,19 @@ class Attention(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
+    # def forward(self, x, H, W):
+    #     B, N, C = x.shape
+    #     q = rearrange(self.q(x), 'b n (h d) -> b h n d', h=self.num_heads)
+
+    #     if self.sr_ratio > 1:
+    #         x_ = rearrange(x, 'b n c -> b c n')
+    #         x_ = x_.view(B, C, H, W)
+    #         x_ = self.sr(x_)
+    #         x_ = x_.view(B, C, -1)
+    #         x_ = rearrange(x_, 'b c n -> b n c')
+    #         x_ = self.norm(x_)
+    #         kv = self.kv(x_).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+
     def forward(self, x, H, W):
         B, N, C = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
@@ -106,10 +119,12 @@ class Attention(nn.Module):
         k, v = kv[0], kv[1]
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        attn = attn.softmax(dim=-1) # output attn: [batch_size, nhead, query_len, key_len]
+        attn = self.attn_drop(attn) # input/output attn: [batch_size, nhead, query_len, key_len] <- 이게 attention
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        #insert bottleneck module
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C) # output x: [batch_size, nhead, query_len, head_dim]
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -209,6 +224,11 @@ class MixVisionTransformer(nn.Module):
         self.depths = depths
         self.attention_maps = []
 
+        self.pool1 = nn.AvgPool2d(sr_ratios[0], sr_ratios[0])
+        self.pool2 = nn.AvgPool2d(sr_ratios[1], sr_ratios[1])
+        self.pool3 = nn.AvgPool2d(sr_ratios[2], sr_ratios[2])
+        self.activation = nn.Sigmoid()
+
         # patch_embed
         self.patch_embed1 = OverlapPatchEmbed(img_size=img_size, patch_size=7, stride=4, in_chans=in_chans,
                                               embed_dim=embed_dims[0])
@@ -272,7 +292,7 @@ class MixVisionTransformer(nn.Module):
 
     def get_attention(self, module, input, output):
         # attention_map = output[0].cpu().detach().numpy()
-        print(f'module: {module}, input: {input.shape}, output: {output[0].shape}')
+        # print(f'module: {module}, input: {input[0].shape}, output: {output[0].shape}')
         attention_map = output[0].cpu()
         self.attention_maps.append(attention_map)
 
@@ -333,7 +353,7 @@ class MixVisionTransformer(nn.Module):
         outs = []
 
         # stage 1
-        x, H, W = self.patch_embed1(x)
+        x, H, W = self.patch_embed1(x) ##patches_embedded: #1, 16384(128*128), 32 (16384은 전체 patch 갯수, 32은 embedding 차원)
         for i, blk in enumerate(self.block1):
             x = blk(x, H, W)
         x = self.norm1(x)
@@ -368,9 +388,30 @@ class MixVisionTransformer(nn.Module):
 
     def compute_interpret(self):
         head_fusion = 'max'
-        num_heads, num_tokens, _ = self.attention_maps[0].shape #attention map 크기 [# Head, # token, # token dimension]
+         #[batch_size, nhead, query_len, key_len] <- 이게 attention
+         # attention_maps 텐서의 크기를 변환합니다.
+        # attention_maps = attention_maps.view(num_heads, num_tokens, num_tokens, sequence_length)으로 변환이 필요
 
-        for attention in self.attention_maps:
+
+        num_heads, num_tokens, _ = self.attention_maps[0].shape
+        attn = self.attention_maps[0].permute(0,2,1)
+        attn = attn.reshape(num_heads, -1, int(num_tokens**0.5), int(num_tokens**0.5))
+        attn1 = self.pool1(attn).squeeze(0) #channel-wise average pooling
+
+        num_heads, num_tokens, _ = self.attention_maps[5].shape
+        attn = self.attention_maps[5].permute(0,2,1)
+        attn = attn.reshape(num_heads, -1, int(num_tokens**0.5), int(num_tokens**0.5))
+        attn3 = self.pool3(attn).squeeze(0)
+        attn3 = attn3.max(axis=0)[0]
+
+        num_heads, num_tokens, _ = self.attention_maps[-1].shape
+        attn2 = self.attention_maps[-1].permute(0,2,1)
+        attn2 = attn2.reshape(num_heads, -1, int(num_tokens**0.5), int(num_tokens**0.5))
+        attn2 = attn2.max(axis=0)[0]
+
+        out = (attn1.mean(0) + attn2.mean(0) + attn3.mean(0)) / 3
+
+        for attention in self.attention_maps: #average/max/min over head
             if head_fusion == "mean":
                 attention_heads_fused = attention.mean(axis=0)
             elif head_fusion == "max":
@@ -378,8 +419,15 @@ class MixVisionTransformer(nn.Module):
             elif head_fusion == "min":
                 attention_heads_fused = attention.min(axis=0)[0]
             else:
-                raise "Attention head fusion type Not supported"            
+                raise "Attention head fusion type Not supported"
 
+            #upsampling (because 각 stage 마다 크기가 다르니까)
+            
+
+            I = torch.eye(attention_heads_fused.size(0))
+            a = (attention_heads_fused + 1.0*I)/2
+            a = a / a.sum(dim=-1)
+            result = torch.matmul(a, result)
 
 
     def forward(self, x):
