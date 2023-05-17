@@ -106,6 +106,7 @@ class Attention(nn.Module):
     #         kv = self.kv(x_).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
 
     def forward(self, x, H, W):
+        # num samples, num patches, num channels (or embed_dim) 
         B, N, C = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -294,6 +295,8 @@ class MixVisionTransformer(nn.Module):
         # attention_map = output[0].cpu().detach().numpy()
         # print(f'module: {module}, input: {input[0].shape}, output: {output[0].shape}')
         attention_map = output[0].cpu()
+        n, _, _ = attention_map.shape
+        attention_map = output[0].cpu().permute(0,2,1).reshape(n, -1, self.H, self.W)
         self.attention_maps.append(attention_map)
 
     def _init_weights(self, m):
@@ -353,40 +356,45 @@ class MixVisionTransformer(nn.Module):
         outs = []
 
         # stage 1
-        x, H, W = self.patch_embed1(x) ##patches_embedded: #1, 16384(128*128), 32 (16384은 전체 patch 갯수, 32은 embedding 차원)
+        x, self.H, self.W = self.patch_embed1(x) ##patches_embedded: #1, 16384(128*128), 32 (16384은 전체 patch 갯수, 32은 embedding 차원)
         for i, blk in enumerate(self.block1):
-            x = blk(x, H, W)
+            x = blk(x, self.H, self.W)
         x = self.norm1(x)
-        x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+        x = x.reshape(B, self.H, self.W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 2
-        x, H, W = self.patch_embed2(x)
+        x, self.H, self.W  = self.patch_embed2(x)
         for i, blk in enumerate(self.block2):
-            x = blk(x, H, W)
+            x = blk(x, self.H, self.W)
         x = self.norm2(x)
-        x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+        x = x.reshape(B, self.H, self.W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 3
-        x, H, W = self.patch_embed3(x)
+        x, self.H, self.W  = self.patch_embed3(x)
         for i, blk in enumerate(self.block3):
-            x = blk(x, H, W)
+            x = blk(x, self.H, self.W)
         x = self.norm3(x)
-        x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+        x = x.reshape(B, self.H, self.W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 4
-        x, H, W = self.patch_embed4(x)
+        x, self.H, self.W  = self.patch_embed4(x)
         for i, blk in enumerate(self.block4):
-            x = blk(x, H, W)
+            x = blk(x, self.H, self.W)
         x = self.norm4(x)
-        x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+        x = x.reshape(B, self.H, self.W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         return outs
 
+
     def compute_interpret(self):
+        """
+        Computes the Attention Rollout matrice. 
+        Also see, https://github.com/jacobgil/vit-explain/blob/main/vit_rollout.py
+        """
         head_fusion = 'max'
          #[batch_size, nhead, query_len, key_len] <- 이게 attention
          # attention_maps 텐서의 크기를 변환합니다.
@@ -421,7 +429,7 @@ class MixVisionTransformer(nn.Module):
             else:
                 raise "Attention head fusion type Not supported"
 
-            #upsampling (because 각 stage 마다 크기가 다르니까)
+            # upsampling (because 각 stage 마다 크기가 다르니까)
             
 
             I = torch.eye(attention_heads_fused.size(0))
@@ -432,9 +440,8 @@ class MixVisionTransformer(nn.Module):
 
     def forward(self, x):
         x = self.forward_features(x)
-
-        heatmap = self.compute_interpret() #attention map 크기 [# Head (확실), # token (H*W), # token dimension]
-
+        # heatmap = self.compute_interpret() #attention map 크기 [# Head (확실), # token (H*W), # token dimension]
+        # self.attention_maps = []
         # x = self.head(x)
 
         return x
