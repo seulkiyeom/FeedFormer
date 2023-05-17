@@ -111,6 +111,7 @@ data
 *.pkl
 *.pkl.json
 *.log.json
+*.png
 work_dirs/
 work_dirs
 pretrained
