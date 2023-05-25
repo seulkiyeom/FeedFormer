@@ -259,11 +259,11 @@ class MixVisionTransformer(nn.Module):
         self.norm4 = norm_layer(embed_dims[3])
 
         # Hook register
-        attention_layer_name = 'attn_drop'
-        for block in [self.block1, self.block2, self.block3, self.block4]:
-            for name, module in block.named_modules():
-                if attention_layer_name in name:
-                    module.register_forward_hook(self.get_attention)
+        # attention_layer_name = 'attn_drop'
+        # for block in [self.block1, self.block2, self.block3, self.block4]:
+        #     for name, module in block.named_modules():
+        #         if attention_layer_name in name:
+        #             module.register_forward_hook(self.get_attention)
 
         # classification head
         # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
@@ -272,7 +272,7 @@ class MixVisionTransformer(nn.Module):
 
     def get_attention(self, module, input, output):
         # attention_map = output[0].cpu().detach().numpy()
-        print(f'module: {module}, input: {input.shape}, output: {output[0].shape}')
+        #print(f'module: {module}, input: {input.shape}, output: {output[0].shape}')
         attention_map = output[0].cpu()
         self.attention_maps.append(attention_map)
 
@@ -385,7 +385,7 @@ class MixVisionTransformer(nn.Module):
     def forward(self, x):
         x = self.forward_features(x)
 
-        heatmap = self.compute_interpret() #attention map 크기 [# Head (확실), # token (H*W), # token dimension]
+        # heatmap = self.compute_interpret() #attention map 크기 [# Head (확실), # token (H*W), # token dimension]
 
         # x = self.head(x)
 
